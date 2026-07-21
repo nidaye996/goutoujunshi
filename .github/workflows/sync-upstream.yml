@@ -1,0 +1,48 @@
+name: Sync upstream safely
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the fork with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge upstream updates and keep a rollback snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/powerycy/goutoujunshi.git
+
+          if ! git fetch --prune upstream main; then
+            echo "::warning::The upstream repository is unavailable. The fork and its existing history are unchanged."
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "The fork already contains the latest upstream commit."
+            exit 0
+          fi
+
+          backup_tag="backup-before-sync-$(date -u +'%Y%m%dT%H%M%SZ')"
+          git tag "$backup_tag" HEAD
+          git push origin "$backup_tag"
+
+          git merge --no-edit upstream/main
+          git push origin HEAD:main
